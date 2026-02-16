@@ -10,7 +10,7 @@ import base64
 import requests
 import json
 from aynyan_brain import aynyan
-from config import LINE_CHANNEL_ACCESS_TOKEN, LINE_CHANNEL_SECRET
+from config_env import LINE_CHANNEL_ACCESS_TOKEN, LINE_CHANNEL_SECRET
 
 app = FastAPI(title="Aynyan LINE Bot")
 

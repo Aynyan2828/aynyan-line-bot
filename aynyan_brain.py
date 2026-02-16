@@ -2,7 +2,7 @@
 Aynyan AI Brain - 返信生成ロジック
 """
 import random
-from config import AYNYAN_PROFILE, KEYWORDS
+from config‗env import AYNYAN_PROFILE, KEYWORDS
 
 
 class AynyanBrain:
