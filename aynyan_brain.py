@@ -1,12 +1,12 @@
 """
-AYN(メガネエンジン)の返信ロジック - AI統合強化版
+AYN(メガネエンジン)の返信ロジック - AI統合強化版（修正版）
 """
 from config_env import KEYWORDS, SYSTEM_PROMPT, OPENAI_API_KEY
 import random
-import openai
+from openai import OpenAI
 
-# OpenAI APIの設定
-openai.api_key = OPENAI_API_KEY
+# OpenAI クライアントの初期化
+client = OpenAI(api_key=OPENAI_API_KEY)
 
 def analyze_sentiment(message_text: str) -> str:
     """
@@ -81,7 +81,7 @@ def generate_ai_response(message_text: str, sentiment: str) -> str:
             context = "\n\n相手は質問をしています。わかる範囲で答えてください。わからない場合は素直に「まだ生まれたばかりのbotやけん、わかりまっしぇん」と答えてください。"
         
         # OpenAI APIを呼び出し
-        response = openai.chat.completions.create(
+        response = client.chat.completions.create(
             model="gpt-4o-mini",
             messages=[
                 {"role": "system", "content": SYSTEM_PROMPT + context},
