@@ -1,84 +1,66 @@
 """
-Aynyan LINE Bot - Webhook Server
+LINE Bot Webhook Server - AYN強化版
 """
 from fastapi import FastAPI, Request, HTTPException
-from fastapi.responses import JSONResponse
-import hashlib
-import hmac
-import base64
-import requests
-from aynyan_brain import aynyan
+from linebot import LineBotApi, WebhookHandler
+from linebot.exceptions import InvalidSignatureError
+from linebot.models import MessageEvent, TextMessage, TextSendMessage
 from config_env import LINE_CHANNEL_ACCESS_TOKEN, LINE_CHANNEL_SECRET
+from aynyan_brain import aynyan
+import uvicorn
 
 app = FastAPI()
+
+# LINE Bot APIの初期化
+line_bot_api = LineBotApi(LINE_CHANNEL_ACCESS_TOKEN)
+handler = WebhookHandler(LINE_CHANNEL_SECRET)
+
 
 @app.get("/")
 async def root():
     """ヘルスチェック用エンドポイント"""
-    return {
-        "status": "ok",
-        "bot": "Aynyan LINE Bot",
-        "message": "Crypto Ark : BCNOFNeのM/Eが稼働中ばい⚓"
-    }
+    return {"status": "AYN Bot is running!", "version": "Enhanced v2.0"}
+
 
 @app.post("/webhook")
 async def webhook(request: Request):
-    """LINE Webhookエンドポイント"""
-    # 署名検証
-    signature = request.headers.get("X-Line-Signature")
+    """
+    LINE Webhookエンドポイント
+    LINEからのメッセージを受信して処理する
+    """
+    # リクエストボディを取得
     body = await request.body()
+    body_str = body.decode('utf-8')
     
-    if not verify_signature(body, signature):
+    # 署名を検証
+    signature = request.headers.get('X-Line-Signature', '')
+    
+    try:
+        handler.handle(body_str, signature)
+    except InvalidSignatureError:
         raise HTTPException(status_code=400, detail="Invalid signature")
     
-    # イベント処理
-    events = (await request.json()).get("events", [])
-    
-    for event in events:
-        if event["type"] == "message" and event["message"]["type"] == "text":
-            reply_token = event["replyToken"]
-            user_message = event["message"]["text"]
-            
-            # Aynyanの返信を生成
-            reply_message = aynyan(user_message)
-            
-            # LINE APIで返信
-            send_reply(reply_token, reply_message)
-    
-    return JSONResponse(content={"status": "ok"})
+    return "OK"
 
-def verify_signature(body: bytes, signature: str) -> bool:
-    """LINE署名を検証"""
-    hash_digest = hmac.new(
-        LINE_CHANNEL_SECRET.encode("utf-8"),
-        body,
-        hashlib.sha256
-    ).digest()
-    
-    expected_signature = base64.b64encode(hash_digest).decode("utf-8")
-    return signature == expected_signature
 
-def send_reply(reply_token: str, message: str):
-    """LINEに返信メッセージを送信"""
-    url = "https://api.line.me/v2/bot/message/reply"
-    headers = {
-        "Content-Type": "application/json",
-        "Authorization": f"Bearer {LINE_CHANNEL_ACCESS_TOKEN}"
-    }
-    data = {
-        "replyToken": reply_token,
-        "messages": [
-            {
-                "type": "text",
-                "text": message
-            }
-        ]
-    }
+@handler.add(MessageEvent, message=TextMessage)
+def handle_text_message(event):
+    """
+    テキストメッセージを処理する
+    """
+    # 受信メッセージ
+    user_message = event.message.text
     
-    response = requests.post(url, headers=headers, json=data)
-    if response.status_code != 200:
-        print(f"Error sending reply: {response.text}")
+    # AYNの返信を生成
+    reply_message = aynyan(user_message)
+    
+    # 返信を送信
+    line_bot_api.reply_message(
+        event.reply_token,
+        TextSendMessage(text=reply_message)
+    )
+
 
 if __name__ == "__main__":
-    import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    # サーバーを起動
+    uvicorn.run(app, host="0.0.0.0", port=10000)
