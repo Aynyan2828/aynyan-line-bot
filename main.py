@@ -4,14 +4,20 @@ LINE Bot Webhook Server - AYN強化版（運用安定化）
 from fastapi import FastAPI, Request, HTTPException
 from linebot import LineBotApi, WebhookHandler
 from linebot.exceptions import InvalidSignatureError
-from linebot.models import MessageEvent, TextMessage, TextSendMessage
+from linebot.models import MessageEvent, TextMessage, ImageMessage, FileMessage, TextSendMessage
 from config_env import LINE_CHANNEL_ACCESS_TOKEN, LINE_CHANNEL_SECRET
 from aynyan_brain import aynyan
 import uvicorn
+import requests
+import os
 
 import time
 import logging
 from collections import deque, defaultdict
+
+# Pi連携用の環境変数
+PI_INGEST_URL = os.getenv("PI_INGEST_URL") # 例: https://xxxxx.ts.net/ingest
+PI_INGEST_KEY = os.getenv("PI_INGEST_KEY")
 
 app = FastAPI()
 
@@ -155,6 +161,64 @@ def handle_text_message(event):
         # 返信失敗もログに残す
         logger.exception(f"[ERROR] reply_message failed: {e}")
 
+@handler.add(MessageEvent, message=(ImageMessage, FileMessage))
+def handle_media_message(event):
+    """
+    画像やファイル（CSV等）のメッセージを処理し、Raspberry Piに転送する
+    """
+    user_id = getattr(event.source, "user_id", "unknown")
+    message_id = event.message.id
+    
+    # 二重送受信防止
+    if _is_duplicate_event(event):
+        logger.info(f"[DUP MEDIA] {user_id}: {message_id}")
+        return
+
+    logger.info(f"[MEDIA] {user_id}: {message_id}")
+
+    # 拡張子・ファイル種類の判定
+    filename = "image.jpg"
+    is_csv = False
+    
+    if isinstance(event.message, FileMessage):
+        filename = event.message.file_name
+        if filename.lower().endswith(".csv"):
+            is_csv = True
+            
+    # 返信制限(レート制限)等もかけられますが、ここでは簡易にACKを返します
+    ack_msg = "📊 CSVデータを受け取ったばい！ラズパイに転送してOBD高精度解析を開始するけん！" if is_csv else "🔥 写真を受け取ったばい！ラズパイに転送して焼却炉OCR解析を開始するけん！"
+    try:
+        line_bot_api.reply_message(event.reply_token, TextSendMessage(text=ack_msg))
+    except Exception as e:
+        logger.exception(f"[ERROR] media ACK reply failed: {e}")
+
+    # LINEからバイナリを取得してラズパイへ転送
+    try:
+        message_content = line_bot_api.get_message_content(message_id)
+        file_binary = b""
+        for chunk in message_content.iter_content():
+            if chunk:
+                file_binary += chunk
+            
+        # ラズパイ側に送る
+        files = {"file": (filename, file_binary)}
+        data = {
+            "message_id": message_id,
+            "user_id": user_id,
+            "type": "obd" if is_csv else "incinerator"
+        }
+        headers = {"X-API-KEY": PI_INGEST_KEY}
+        
+        pi_res = requests.post(PI_INGEST_URL, headers=headers, files=files, data=data, timeout=30)
+        pi_res.raise_for_status()
+        logger.info(f"[PI TRANSFER SUCCESS] {user_id}: {message_id}")
+        
+    except Exception as e:
+        logger.exception(f"[PI TRANSFER ERROR] {e}")
+        try:
+            line_bot_api.push_message(user_id, TextSendMessage(text=f"⚠️ ラズパイへの転送・解析予約に失敗したばい…Tailscaleとかの設定ば確認してね。\n{str(e)}"))
+        except:
+            pass
 
 if __name__ == "__main__":
     # サーバーを起動
